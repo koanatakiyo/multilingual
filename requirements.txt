@@ -1,0 +1,51 @@
+# Multilingual CoT ranking-comparability pilot — Python dependencies
+# Target: conda env with Python >= 3.10, CUDA 12.x for GPU inference.
+#
+# Install:
+#   conda create -n multilingual python=3.10 -y
+#   conda activate multilingual
+#   pip install -r requirements.txt
+
+# Core scientific stack
+numpy>=1.24,<2.0
+scipy>=1.11
+pandas>=2.1
+scikit-learn>=1.3
+
+# HuggingFace + model inference
+torch>=2.2            # install the CUDA-matched build separately if needed
+transformers>=4.45    # required for Qwen3 / Llama 3.1 / Ministral / Phi-4 / Gemma 2
+accelerate>=0.33
+bitsandbytes>=0.43    # optional 8-bit / 4-bit loading for >8B models
+sentencepiece>=0.1.99
+protobuf>=4.25
+safetensors>=0.4
+einops>=0.7
+
+# Datasets + hub
+datasets>=2.19
+huggingface_hub>=0.23
+
+# Sentence embedding for LaBSE step alignment
+sentence-transformers>=2.7
+
+# Optional: Anthropic judge for bidirectional hyperedge extraction
+anthropic>=0.34
+
+# Plotting / reporting
+matplotlib>=3.8
+seaborn>=0.13
+
+# Statistics
+statsmodels>=0.14
+
+# Progress + utilities
+tqdm>=4.66
+pyyaml>=6.0
+rich>=13.7
+
+# Tokenization helpers occasionally required by multilingual models
+tiktoken>=0.7
+jieba>=0.42           # Chinese tokenization fallback
+fugashi>=1.3          # Japanese tokenization (MGSM / Belebele JA)
+unidic-lite>=1.0.8
