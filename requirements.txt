@@ -17,6 +17,7 @@ torch>=2.2            # install the CUDA-matched build separately if needed
 transformers>=4.45    # required for Qwen3 / Llama 3.1 / Ministral / Phi-4 / Gemma 2
 accelerate>=0.33
 bitsandbytes>=0.43    # optional 8-bit / 4-bit loading for >8B models
+vllm>=0.8.5,<0.9      # batch generation backend (pilot_01 / pilot_07b / pilot_13)
 sentencepiece>=0.1.99
 protobuf>=4.25
 safetensors>=0.4
@@ -29,7 +30,9 @@ huggingface_hub>=0.23
 # Sentence embedding for LaBSE step alignment
 sentence-transformers>=2.7
 
-# Optional: Anthropic judge for bidirectional hyperedge extraction
+# LLM judges for bidirectional hyperedge extraction. OpenAI is the default;
+# Anthropic is kept as an alternative. Keys live under APIkeys/api_key_<provider>.txt.
+openai>=1.30
 anthropic>=0.34
 
 # Plotting / reporting

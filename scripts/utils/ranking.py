@@ -39,13 +39,27 @@ def inversion_rate(ranks_a: Sequence[float], ranks_b: Sequence[float]) -> float:
     return inv / total if total else 0.0
 
 
-def rank_models(values: Dict[str, float], higher_is_better: bool = True) -> Dict[str, int]:
-    """Return 1-indexed ranks by value. Higher value ⇒ rank 1 if higher_is_better."""
+def rank_models(values: Dict[str, float], higher_is_better: bool = True) -> Dict[str, float]:
+    """Return 1-indexed average ranks by value.
+
+    Higher value receives rank 1 when higher_is_better. Tied values receive the
+    same average rank so Kendall tau can treat them as true ties.
+    """
     items = sorted(values.items(), key=lambda kv: kv[1], reverse=higher_is_better)
-    return {name: i + 1 for i, (name, _) in enumerate(items)}
+    ranks: Dict[str, float] = {}
+    i = 0
+    while i < len(items):
+        j = i + 1
+        while j < len(items) and items[j][1] == items[i][1]:
+            j += 1
+        rank = ((i + 1) + j) / 2.0
+        for name, _ in items[i:j]:
+            ranks[name] = rank
+        i = j
+    return ranks
 
 
-def crsi(accuracy_ranks: Dict[str, int], feature_ranks_by_feat: Dict[str, Dict[str, int]]) -> float:
+def crsi(accuracy_ranks: Dict[str, float], feature_ranks_by_feat: Dict[str, Dict[str, float]]) -> float:
     """Mean Kendall tau between accuracy ranking and each feature ranking."""
     if not feature_ranks_by_feat:
         return 1.0

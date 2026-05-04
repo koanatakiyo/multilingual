@@ -211,3 +211,17 @@ __marimo__/
 *.md
 
 data/
+
+scripts/check_qwen3_cot.py
+scripts/download_data.py
+
+APIkeys/
+
+output/
+*.sh
+
+Knowledgeclaw_paper/
+multilingual_paper/
+.TinyTeX/
+.codex
+=0.7,

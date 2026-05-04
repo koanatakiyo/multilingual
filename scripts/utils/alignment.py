@@ -1,6 +1,8 @@
 """LaBSE-based cross-lingual step alignment and unmatched-step ratio.
 
-The encoder is loaded lazily so scripts that do not need LaBSE avoid the cost.
+Uses optimal (Hungarian / linear_sum_assignment) maximum-weight bipartite
+matching, not the greedy fallback, so the unmatched ratio is not inflated by
+greedy miss-assignments.
 """
 from __future__ import annotations
 
@@ -44,20 +46,24 @@ def encode(sentences: List[str]) -> np.ndarray:
     return embs.cpu().numpy().astype(np.float32)
 
 
-def _greedy_bipartite(sim: np.ndarray, threshold: float) -> List[Tuple[int, int, float]]:
+def _optimal_bipartite(sim: np.ndarray, threshold: float) -> List[Tuple[int, int, float]]:
+    """Maximum-weight bipartite matching via Hungarian assignment.
+
+    Pairs with similarity below `threshold` are dropped from the final matching.
+    """
+    from scipy.optimize import linear_sum_assignment  # type: ignore
+
     m, n = sim.shape
+    if m == 0 or n == 0:
+        return []
+    # linear_sum_assignment minimises cost; convert similarity → cost.
+    cost = -sim
+    row_ind, col_ind = linear_sum_assignment(cost)
     matches: List[Tuple[int, int, float]] = []
-    used_a, used_b = set(), set()
-    flat = [(sim[i, j], i, j) for i in range(m) for j in range(n)]
-    flat.sort(reverse=True)
-    for s, i, j in flat:
-        if s < threshold:
-            break
-        if i in used_a or j in used_b:
-            continue
-        matches.append((i, j, float(s)))
-        used_a.add(i)
-        used_b.add(j)
+    for i, j in zip(row_ind, col_ind):
+        s = float(sim[i, j])
+        if s >= threshold:
+            matches.append((int(i), int(j), s))
     return matches
 
 
@@ -74,7 +80,7 @@ def align_steps(steps_a: List[str], steps_b: List[str], threshold: float = None)
     emb_a = encode(steps_a)
     emb_b = encode(steps_b)
     sim = emb_a @ emb_b.T
-    matches = _greedy_bipartite(sim, threshold)
+    matches = _optimal_bipartite(sim, threshold)
     m, n = len(steps_a), len(steps_b)
     unmatched = 1 - (2 * len(matches)) / (m + n)
     return {

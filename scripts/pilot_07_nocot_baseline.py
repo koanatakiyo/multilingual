@@ -30,14 +30,17 @@ def _accuracy(dataset: str, mode: str):
     return dict(acc)
 
 
-def stability(accuracy: dict) -> dict:
-    models = sorted(accuracy.keys())
-    langs = set()
-    for v in accuracy.values():
-        langs.update(v.keys())
+def stability(accuracy: dict, lang_pair=("en", "zh")) -> dict:
+    models = sorted(
+        m for m, per_lang in accuracy.items()
+        if all(lang in per_lang for lang in lang_pair)
+    )
+    if not models:
+        return {"error": "no complete EN/ZH accuracy pairs"}
+    langs = set(lang_pair)
     results = {}
     for lang in langs:
-        vals = {m: accuracy[m].get(lang, 0.0) for m in models}
+        vals = {m: accuracy[m][lang] for m in models}
         results[lang] = {"values": vals, "ranks": rank_models(vals)}
     if "en" in results and "zh" in results:
         en = [results["en"]["ranks"][m] for m in models]

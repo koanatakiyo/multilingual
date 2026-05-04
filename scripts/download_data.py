@@ -52,23 +52,41 @@ def _hf_load(name: str, subset: str, split: str):
 
 
 def download_xcopa() -> None:
+    """Download XCOPA EN+ZH and backfill EN test labels from ZH.
+
+    super_glue/copa hides test labels (label = -1). XCOPA/zh is a professional
+    translation of the same COPA items and does expose labels. Because the
+    items share idx (verified equal key universes on test and validation),
+    the correct choice is invariant across languages and we can backfill the
+    EN gold from ZH.
+    """
     spec = DATASETS["xcopa"]
-    # English via SuperGLUE/COPA
-    for split in spec["en"]["splits"]:
-        print(f"[xcopa] en / {split}")
-        ds = _hf_load(spec["en"]["hf_id"], spec["en"]["subset"], split)
-        out = spec["local_dir"] / f"en_{split}.jsonl"
-        rows = [dict(r) for r in ds]
-        n = _write_jsonl(out, rows)
-        print(f"  wrote {n} -> {out}")
-    # Chinese via XCOPA
+    zh_by_idx_by_split: Dict[str, Dict[int, Dict]] = {}
+    # Chinese via XCOPA first so we have labels available for backfill.
     for split in spec["zh"]["splits"]:
         print(f"[xcopa] zh / {split}")
         ds = _hf_load(spec["zh"]["hf_id"], spec["zh"]["subset"], split)
-        out = spec["local_dir"] / f"zh_{split}.jsonl"
         rows = [dict(r) for r in ds]
+        out = spec["local_dir"] / f"zh_{split}.jsonl"
         n = _write_jsonl(out, rows)
         print(f"  wrote {n} -> {out}")
+        zh_by_idx_by_split[split] = {int(r["idx"]): r for r in rows}
+
+    for split in spec["en"]["splits"]:
+        print(f"[xcopa] en / {split}")
+        ds = _hf_load(spec["en"]["hf_id"], spec["en"]["subset"], split)
+        rows = [dict(r) for r in ds]
+        backfilled = 0
+        for r in rows:
+            if int(r.get("label", -1)) < 0 and split in zh_by_idx_by_split:
+                zh_r = zh_by_idx_by_split[split].get(int(r["idx"]))
+                if zh_r is not None:
+                    r["label"] = int(zh_r["label"])
+                    r["label_source"] = "xcopa_zh_backfill"
+                    backfilled += 1
+        out = spec["local_dir"] / f"en_{split}.jsonl"
+        n = _write_jsonl(out, rows)
+        print(f"  wrote {n} (backfilled {backfilled}) -> {out}")
 
 
 def download_xstorycloze() -> None:
@@ -90,18 +108,27 @@ def download_mgsm() -> None:
         resp = urllib.request.urlopen(url, timeout=60)
         text = resp.read().decode("utf-8")
         rows = []
+        numeric_gold = 0
         reader = csv.reader(io.StringIO(text), delimiter="\t")
         for parts in reader:
             if not parts:
                 continue
             if len(parts) == 1:
                 rows.append({"question": parts[0], "answer_number": ""})
-            else:
-                question, gold = parts[0], parts[-1]
-                rows.append({"question": question, "answer_number": gold})
+                continue
+            question, gold = parts[0], parts[-1]
+            try:
+                float(gold.replace(",", ""))
+                numeric_gold += 1
+            except ValueError:
+                pass
+            rows.append({"question": question, "answer_number": gold})
         out = spec["local_dir"] / f"{lang}_test.jsonl"
         n = _write_jsonl(out, rows)
-        print(f"  wrote {n} -> {out}")
+        print(f"  wrote {n} (numeric gold: {numeric_gold}/{n}) -> {out}")
+        if n and numeric_gold / n < 0.9:
+            print(f"  [warn] only {numeric_gold}/{n} rows had numeric gold — "
+                  "MGSM TSV format may have changed; inspect the file.")
 
 
 def download_belebele() -> None:

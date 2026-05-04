@@ -19,12 +19,18 @@ from utils.config import FEAT_DIR, PILOT, RANK_DIR  # noqa: E402
 from utils.io import read_jsonl, read_json, write_json  # noqa: E402
 from utils.matching import accuracy_matched_ids  # noqa: E402
 
-FEATURE_NAMES = ["step_count", "verification_rate", "dependency_depth", "avg_step_tokens"]
+FEATURE_NAMES = [
+    "step_count",
+    "procedural_rate",
+    "epistemic_rate",
+    "dependency_depth",
+]
 
 
 def _load_pair(dataset: str, model: str):
-    en = list((FEAT_DIR / f"{model}__{dataset}__en__cot.jsonl").open() if False else read_jsonl(FEAT_DIR / f"{model}__{dataset}__en__cot.jsonl"))
+    en_path = FEAT_DIR / f"{model}__{dataset}__en__cot.jsonl"
     zh_path = FEAT_DIR / f"{model}__{dataset}__zh__cot.jsonl"
+    en = read_jsonl(en_path) if en_path.exists() else []
     zh = read_jsonl(zh_path) if zh_path.exists() else []
     return en, zh
 
@@ -66,6 +72,8 @@ def main() -> None:
     ap.add_argument("--datasets", nargs="+", default=["xcopa"])
     ap.add_argument("--models", nargs="+", default=None,
                     help="default: infer from features dir")
+    ap.add_argument("--exclude_models", nargs="+", default=None,
+                    help="model keys to drop before analysis (e.g. Phi-4-reasoning)")
     ap.add_argument("--rankings_file", default=str(RANK_DIR / "pilot_day1_rankings.json"))
     ap.add_argument("--out", default=str(RANK_DIR / "pilot_day1_within_language_baseline.json"))
     args = ap.parse_args()
@@ -74,6 +82,9 @@ def main() -> None:
         models = sorted({p.stem.split("__")[0] for p in FEAT_DIR.glob("*__*__en__cot.jsonl")})
     else:
         models = args.models
+    if args.exclude_models:
+        drop = set(args.exclude_models)
+        models = [m for m in models if m not in drop]
 
     result = {}
     for d in args.datasets:
@@ -83,9 +94,12 @@ def main() -> None:
         rankings = read_json(Path(args.rankings_file))
         comparisons = {}
         for d in args.datasets:
-            if d not in rankings or not rankings[d]:
+            # pilot_03 keys results as "{dataset}__{la}_{lb}"; EN-ZH is the
+            # comparison target for Day 1.
+            rank_key = f"{d}__en_zh"
+            if rank_key not in rankings or not rankings[rank_key]:
                 continue
-            cross = rankings[d]["mean_abs_divergence_per_feature"]
+            cross = rankings[rank_key]["mean_abs_divergence_per_feature"]
             within = result.get(d, {})
             per_feat = {}
             for f in FEATURE_NAMES:

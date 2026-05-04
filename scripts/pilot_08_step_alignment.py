@@ -50,6 +50,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--datasets", nargs="+", default=["xcopa"])
     ap.add_argument("--models", nargs="+", default=None)
+    ap.add_argument("--exclude_models", nargs="+", default=None,
+                    help="model keys to drop before analysis")
     ap.add_argument("--threshold", type=float, default=PILOT["labse_threshold"])
     ap.add_argument("--out", default=str(RANK_DIR / "pilot_day3_alignment.json"))
     args = ap.parse_args()
@@ -58,6 +60,9 @@ def main() -> None:
         models = sorted({p.stem.split("__")[0] for p in FEAT_DIR.glob("*__xcopa__en__cot.jsonl")})
     else:
         models = args.models
+    if args.exclude_models:
+        drop = set(args.exclude_models)
+        models = [m for m in models if m not in drop]
 
     summary = {}
     for dataset in args.datasets:
@@ -72,26 +77,37 @@ def main() -> None:
         if not per_model_values:
             continue
 
-        acc_per_model = {}
+        # unmatched_step_ratio is symmetric (alignment is between EN and ZH
+        # step lists), so it produces one rank per model. Compute taus against
+        # both EN and ZH accuracy rankings so it can fold into cross-lingual
+        # CRSI in the same way as the 4 existing features.
+        acc_en_per_model, acc_zh_per_model = {}, {}
         for m in per_model_values:
             en = read_jsonl(FEAT_DIR / f"{m}__{dataset}__en__cot.jsonl")
-            acc_per_model[m] = mean(r["correct"] for r in en)
+            zh = read_jsonl(FEAT_DIR / f"{m}__{dataset}__zh__cot.jsonl")
+            acc_en_per_model[m] = mean(r["correct"] for r in en)
+            acc_zh_per_model[m] = mean(r["correct"] for r in zh)
 
-        acc_ranks = rank_models(acc_per_model, higher_is_better=True)
+        acc_en_ranks = rank_models(acc_en_per_model, higher_is_better=True)
+        acc_zh_ranks = rank_models(acc_zh_per_model, higher_is_better=True)
         unmatched_ranks = rank_models(per_model_values, higher_is_better=True)
+        ms = sorted(per_model_values)
+
+        def _tau(rA, rB): return kendall_tau([rA[m] for m in ms], [rB[m] for m in ms])
+        def _inv(rA, rB): return inversion_rate([rA[m] for m in ms], [rB[m] for m in ms])
 
         summary[dataset] = {
             "unmatched_mean_per_model": per_model_values,
+            "accuracy_en_per_model": acc_en_per_model,
+            "accuracy_zh_per_model": acc_zh_per_model,
             "ranks_unmatched": unmatched_ranks,
-            "ranks_accuracy": acc_ranks,
-            "kendall_tau_accuracy_vs_unmatched": kendall_tau(
-                [acc_ranks[m] for m in sorted(per_model_values)],
-                [unmatched_ranks[m] for m in sorted(per_model_values)],
-            ),
-            "inversion_rate_accuracy_vs_unmatched": inversion_rate(
-                [acc_ranks[m] for m in sorted(per_model_values)],
-                [unmatched_ranks[m] for m in sorted(per_model_values)],
-            ),
+            "ranks_accuracy_en": acc_en_ranks,
+            "ranks_accuracy_zh": acc_zh_ranks,
+            "tau_acc_en_vs_unmatched": _tau(acc_en_ranks, unmatched_ranks),
+            "tau_acc_zh_vs_unmatched": _tau(acc_zh_ranks, unmatched_ranks),
+            "inversion_acc_en_vs_unmatched": _inv(acc_en_ranks, unmatched_ranks),
+            "inversion_acc_zh_vs_unmatched": _inv(acc_zh_ranks, unmatched_ranks),
+            "n_models": len(ms),
         }
     write_json(Path(args.out), summary)
     print(f"wrote {args.out}")

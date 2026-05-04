@@ -84,7 +84,14 @@ FORMATTERS = {
 }
 
 
-def build_prompt(dataset: str, item: Dict, lang: str, cot: bool = True) -> str:
+def build_prompt(dataset: str, item: Dict, lang: str, cot: bool = True,
+                 instr_lang: str = None) -> str:
+    """Render prompt. `lang` governs question content; `instr_lang` (defaults
+    to `lang`) governs the instruction. Split them for Chapter 4.2.1's prompt
+    language flip experiment.
+    """
+    if instr_lang is None:
+        instr_lang = lang
     body = FORMATTERS[dataset](item, lang)
-    instr = COT_INSTRUCTIONS[lang] if cot else DIRECT_INSTRUCTIONS[lang]
+    instr = COT_INSTRUCTIONS[instr_lang] if cot else DIRECT_INSTRUCTIONS[instr_lang]
     return f"{body}\n\n{instr}"

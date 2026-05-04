@@ -42,6 +42,7 @@ def main() -> None:
 
     items = []
     auto_flags = 0
+    flag_lang = "en" if "en" in args.langs else args.langs[0]
     for i in sample_idx:
         per_lang_entries = {l: per_lang[l][i] for l in args.langs}
         golds = {l: per_lang_entries[l]["gold"] for l in args.langs}
@@ -54,12 +55,13 @@ def main() -> None:
             "questions": {l: per_lang_entries[l]["prompt_payload"]["question"] for l in args.langs},
             "golds": golds,
             "gold_consistent": gold_consistent,
-            "manually_flagged": per_lang_entries["en"]["id"] in manual_flags,
+            "manually_flagged": per_lang_entries[flag_lang]["id"] in manual_flags,
         }
         items.append(rec)
 
     result = {
         "langs": args.langs,
+        "flag_language": flag_lang,
         "n_sampled": len(items),
         "n_auto_flagged_inconsistent_gold": auto_flags,
         "n_manually_flagged": sum(1 for r in items if r["manually_flagged"]),

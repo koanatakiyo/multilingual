@@ -26,15 +26,24 @@ def _category_of(dataset: str, item: dict) -> str:
     return "all"
 
 
-def audit(dataset: str, lang_pair=("en", "zh")) -> dict:
-    models = sorted({p.stem.split("__")[0] for p in FEAT_DIR.glob(f"*__{dataset}__en__cot.jsonl")})
+def _feature_path(model: str, dataset: str, lang: str) -> Path:
+    return FEAT_DIR / f"{model}__{dataset}__{lang}__cot.jsonl"
+
+
+def audit(dataset: str, lang_pair=("en", "zh"), exclude_models=None) -> dict:
+    drop = set(exclude_models or [])
+    candidates = {p.stem.split("__")[0] for p in FEAT_DIR.glob(f"*__{dataset}__en__cot.jsonl")}
+    models = sorted(
+        m for m in candidates
+        if m not in drop and all(_feature_path(m, dataset, lang).exists() for lang in lang_pair)
+    )
     if not models:
-        return {"error": "no features"}
+        return {"error": "no complete feature pairs"}
 
     correctness_by_model_lang = {}
     for m in models:
         for lang in lang_pair:
-            rows = read_jsonl(FEAT_DIR / f"{m}__{dataset}__{lang}__cot.jsonl")
+            rows = read_jsonl(_feature_path(m, dataset, lang))
             correctness_by_model_lang[(m, lang)] = {r["id"]: bool(r["correct"]) for r in rows}
 
     matched_per_model = {
@@ -47,11 +56,23 @@ def audit(dataset: str, lang_pair=("en", "zh")) -> dict:
     matched_intersection = intersection_across_models(matched_per_model.values())
 
     en_full = load_dataset(dataset, lang_pair[0], limit=None)
-    per_item_acc = defaultdict(list)
-    for (m, _), correctness in correctness_by_model_lang.items():
-        for iid, ok in correctness.items():
-            per_item_acc[iid].append(int(ok))
-    difficulty = {iid: (1 - mean(vs) if vs else 0.0) for iid, vs in per_item_acc.items()}
+
+    # Per-language difficulty. Mixing EN and ZH correctness into one score turns
+    # "difficulty" into a blend of true difficulty and cross-lingual consistency,
+    # which is exactly the variable we are trying to audit *for*. Compute them
+    # separately and use the one that matches the item list being audited
+    # (EN item list → EN difficulty).
+    difficulty_per_lang = {}
+    for lang in lang_pair:
+        per_item_acc = defaultdict(list)
+        for m in models:
+            for iid, ok in correctness_by_model_lang[(m, lang)].items():
+                per_item_acc[iid].append(int(ok))
+        difficulty_per_lang[lang] = {
+            iid: (1 - mean(vs) if vs else 0.0) for iid, vs in per_item_acc.items()
+        }
+    audit_lang = lang_pair[0]
+    difficulty = difficulty_per_lang[audit_lang]
 
     full_cat = defaultdict(int)
     matched_cat = defaultdict(int)
@@ -69,21 +90,29 @@ def audit(dataset: str, lang_pair=("en", "zh")) -> dict:
     return {
         "dataset": dataset,
         "models": models,
+        "excluded_models": sorted(drop),
+        "audit_language": audit_lang,
         "matched_subset_sizes_per_model": {m: len(s) for m, s in matched_per_model.items()},
         "matched_intersection_size": len(matched_intersection),
         "bias_per_model": summary_by_model,
         "bias_intersection": summary_intersection,
         "category_distribution": {"full": dict(full_cat), "matched_intersection": dict(matched_cat)},
+        "mean_difficulty_per_lang_full": {
+            lang: (mean(difficulty_per_lang[lang].values()) if difficulty_per_lang[lang] else 0.0)
+            for lang in lang_pair
+        },
     }
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--datasets", nargs="+", default=["xcopa", "mgsm"])
+    ap.add_argument("--exclude_models", nargs="+", default=None,
+                    help="model keys to drop before the audit")
     ap.add_argument("--out", default=str(REPORT_DIR / "pilot_day2_selection_bias.json"))
     args = ap.parse_args()
 
-    result = {d: audit(d) for d in args.datasets}
+    result = {d: audit(d, exclude_models=args.exclude_models) for d in args.datasets}
     write_json(Path(args.out), result)
     print(f"wrote {args.out}")
 
